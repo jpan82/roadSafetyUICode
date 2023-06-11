@@ -1,6 +1,6 @@
 // set the map
 let map = L.map('map').setView([43.074722, -89.406389], 30);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+let osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap contributors'
 }).addTo(map);
 
@@ -11,106 +11,92 @@ function getCoordinateClickPoint() {
   });
 }
 
-// example json
-let geoJson = {
-  "type": "Feature",
-  "properties": [10, 8, 9, 7, 5],
-  "segmentNum": 5,
-  "geometry": {
-    "type": "Point",
-    "coordinates": [
-      [43.074722, -89.406389],
-      [43.07471, -89.40621],
-      [43.07528, -89.4062],
-      [43.07609, -89.40588],
-      [43.07644, -89.40661],
-      [43.07629, -89.4067]
-    ]
-  }
-}
-
 // 10 means the most safety, 1 means the most unsafety
-let safetyValueColor = {
-  10: "blue",
-  9: "green",
-  8: "orange",
-  7: "yellow",
-  6: "pink",
-  5: "red",
-  4: "gray",
-  3: "brown",
-  2: "purple",
-  1: "black",
+let color = ["blue", "red", "purple"]
+
+let baseLayer = {
+  "OpenStreetMap": osm,
 };
 
-function createPopup(startLat, startLng, endLat, endLng, safetyValue) {
-  let popup = L.popup()
-    .setLatLng([(startLat + endLat) / 2, (startLng + endLng) / 2])
-    .setContent("Safety Value is " + safetyValue);
+let overlayer = {};
 
-  return popup;
-}
+let layerControl = L.control.layers(baseLayer, overlayer).addTo(map);
 
-let popupLayer = L.layerGroup(); // Create a layer group for the popups
+// the coordinates of each segments in the road
+let roadCoordinates = [];
+let colorRoadLayer;
 
-function drawColorRoadSegment(geoJson) {
-  let idx = geoJson.geometry.coordinates.length;
-  let startCoorLat = geoJson.geometry.coordinates[0][0];
-  let startCoorLng = geoJson.geometry.coordinates[0][1];
-  let endCoorLat = geoJson.geometry.coordinates[idx - 1][0];
-  let endCoorLng = geoJson.geometry.coordinates[idx - 1][1];
-  let colorRoad = L.layerGroup();
+let routingControl = L.Routing.control({
+  // the begin coordinate
+  waypoints: [
+    L.latLng(43.074722, -89.406389),
+    L.latLng(43.07629, -89.4067)
+  ],
+  routeWhileDragging: true, //allows users to drag a waypoint
+  router: L.Routing.graphHopper('a986570d-8859-496d-b394-a64290b956ea'),
+  geocoder: L.Control.Geocoder.nominatim(), // use the geocode
+  lineOptions: {
+    styles: [
+      {
+        color: '#3388ff',
+        opacity: 0.6,
+        weight: 2
+      }
+    ]
+  }
+}).addTo(map);
 
-  geoJson.geometry.coordinates.forEach((coordinate, index) => {
-    if (index < geoJson.geometry.coordinates.length - 1) {
-      let color = safetyValueColor[geoJson.properties[index]];
-      let nextCoordinate = geoJson.geometry.coordinates[index + 1];
-      let coordinateArray = [coordinate, nextCoordinate];
-      let polyline = new L.Polyline(coordinateArray, {
-        color: color,
-        weight: 10,
-        opacity: 0.5,
-        smoothFactor: 1
-      });
-      colorRoad.addLayer(polyline);
+routingControl.on('routesfound', function (event) {
+  const route = event.routes[0];
 
-      let popup = createPopup(coordinate[0], coordinate[1], nextCoordinate[0], nextCoordinate[1], geoJson.properties[index]);
-      popupLayer.addLayer(popup);
-    }
+  const coordinate = route.coordinates;
+  roadCoordinates.length = 0;
+
+  coordinate.forEach(function (coordinate) {
+    let coordinateEach = [coordinate.lat, coordinate.lng];
+    roadCoordinates.push(coordinateEach);
   });
 
-  colorRoad.addTo(map);
+  // Remove the previous color road layer if it exists
+  if (colorRoadLayer) {
+    map.removeLayer(colorRoadLayer);
+    layerControl.removeLayer(colorRoadLayer);
+  }
 
-  let routingControl = L.Routing.control({
-    // the begin coordinate
-    waypoints: [
-        L.latLng(startCoorLat, startCoorLng),
-        L.latLng(endCoorLat, endCoorLng)
-    ],
-    routeWhileDragging: true, //allows users to drag a waypoint
-    router: L.Routing.graphHopper('b998e59b-7730-4892-a04c-db63ec9227a9'),
-    geocoder: L.Control.Geocoder.nominatim(), // use the geocode
-    lineOptions: {
-      styles: [
-        {
-          color: '#3388ff',
-          opacity: 0.6,
-          weight: 2
-        }
-      ]
-    }
-    
-  }).addTo(map);
+  colorRoadLayer = drawColorRoadSegment(roadCoordinates);
+  map.addLayer(colorRoadLayer);
+  layerControl.addOverlay(colorRoadLayer, "colorRoad");
 
+  let credits = route.summary.totalCredits;
+  let remainingCredits = route.summary.remainingCredits;
+  console.log('This request consumed ' + credits + ' credit(s)');
+  console.log('You have ' + remainingCredits + ' left');
+});
+
+let popupLayer = L.layerGroup(); // Create a layer group for the popups
+function drawColorRoadSegment(coordinateArray) {
+  let colorRoadGroup = L.layerGroup(); // Create a layer group for the color road segments
+
+  for (let i = 0; i < coordinateArray.length - 1; i++) {
+    let coordinate = coordinateArray[i];
+    let nextCoordinate = coordinateArray[i + 1];
+    let coordinateForMap = [coordinate, nextCoordinate];
+    console.log(coordinateForMap);
+    let idx = Math.floor(Math.random() * 3);
+    //console.log(idx)
+    let polyline = new L.Polyline(coordinateForMap, {
+      color: color[idx],
+      weight: 10,
+      opacity: 0.5,
+      smoothFactor: 1
+    });
+
+    //console.log(polyline);
+    let segmentGroup = L.layerGroup([polyline]);
+    colorRoadGroup.addLayer(segmentGroup);
+  }
+
+  return colorRoadGroup;
 }
-
-
-drawColorRoadSegment(geoJson);
-
-popupLayer.addTo(map); // Add the popup layer to the map
-
-
-
-
-
+console.log(roadCoordinates);
 
